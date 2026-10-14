@@ -1,0 +1,39 @@
+# Modelos Gemini disponíveis para transcrição.
+# Edite este arquivo para adicionar, remover ou atualizar modelos sem tocar no código.
+#
+# Campos obrigatórios:
+#   id          — ID exato do modelo na API Gemini
+#   label       — Nome exibido na interface
+#   description — Descrição curta exibida como tooltip e no painel de ajuda
+#   mode        — "sync" (síncrono, resultado imediato) ou "batch" (assíncrono, polling)
+#
+# O modelo padrão é definido por GEMINI_DEFAULT_MODEL no .env (valor: chave da seção).
+# Se GEMINI_DEFAULT_MODEL não estiver definido, usa o primeiro modelo da lista.
+
+[[models]]
+key         = "transcribe"
+id          = "gemini-3.5-transcribe"
+label       = "Transcribe 3.5"
+description = "Modelo dedicado a transcrição com diarização nativa. Processamento síncrono — resultado imediato. Limite de 30 min por chunk (arquivos maiores são divididos automaticamente)."
+mode        = "sync"
+
+[[models]]
+key         = "recommended"
+id          = "gemini-3.5-flash"
+label       = "Flash 3.5"
+description = "Modelo de uso geral, melhor equilíbrio entre custo e precisão. Processamento batch assíncrono — resultado disponível em minutos. Sem limite de duração."
+mode        = "batch"
+
+[[models]]
+key         = "lite"
+id          = "gemini-3.1-flash-lite"
+label       = "Flash 3.1 Lite"
+description = "Menor custo por token. Ideal para volume alto de arquivos ou orçamento limitado. Processamento batch assíncrono."
+mode        = "batch"
+
+[[models]]
+key         = "difficult"
+id          = "gemini-3.8-flash"
+label       = "Flash 3.8"
+description = "Melhor percepção acústica da linha Flash. Recomendado para áudios com ruído de fundo, vozes sobrepostas ou sotaque forte. Processamento batch assíncrono."
+mode        = "batch"

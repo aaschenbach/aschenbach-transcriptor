@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aschenbach Transcriptor</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f0f0f'/%3E%3Crect x='4' y='20' width='2' height='8' rx='1' fill='%234a8fd4' opacity='.5'/%3E%3Crect x='8' y='14' width='2' height='14' rx='1' fill='%234a8fd4' opacity='.7'/%3E%3Crect x='12' y='10' width='2' height='18' rx='1' fill='%234a8fd4'/%3E%3Crect x='16' y='6' width='2' height='22' rx='1' fill='%234a8fd4'/%3E%3Crect x='20' y='12' width='2' height='16' rx='1' fill='%234a8fd4' opacity='.8'/%3E%3Crect x='24' y='17' width='2' height='11' rx='1' fill='%234a8fd4' opacity='.6'/%3E%3Crect x='29' y='5' width='2' height='22' rx='1' fill='%23e0e0e0' opacity='.9'/%3E%3C/svg%3E" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-base:    #111113;
+      --bg-surface: #18181b;
+      --bg-raised:  #1f1f24;
+      --bg-input:   #17171a;
+      --border:     #27272d;
+      --border-mid: #2e2e36;
+      --fg-primary: #e2e2e8;
+      --fg-mid:     #9898a8;
+      --fg-dim:     #55555f;
+      --fg-muted:   #3a3a42;
+      --accent:     #4a8fd4;
+      --accent-bg:  #0f2438;
+      --accent-fg:  #8ec4f0;
+      --violet:     #8b6fd4;
+      --violet-bg:  #1a1038;
+      --violet-fg:  #c0a8f0;
+      --green:      #5ab85a;
+      --green-bg:   #0d2a0d;
+      --amber:      #c89a4a;
+      --amber-bg:   #2e2010;
+      --red:        #d46060;
+      --red-bg:     #2a1010;
+      color-scheme: dark;
+    }
+
+    body {
+      background: var(--bg-base);
+      color: var(--fg-primary);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      padding: 0 20px;
+      height: 52px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-surface);
+      flex-shrink: 0;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      text-decoration: none;
+    }
+
+    .logo-icon {
+      width: 30px;
+      height: 30px;
+      flex-shrink: 0;
+    }
+
+    .logo-text {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .logo-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--fg-primary);
+      letter-spacing: -0.01em;
+    }
+
+    .logo-sub {
+      font-size: 10.5px;
+      color: var(--fg-dim);
+      letter-spacing: 0.15px;
+    }
+
+    button.help-btn {
+      padding: 4px 11px;
+      font-size: 12px;
+      background: none;
+      border: 1px solid var(--border-mid);
+      color: var(--fg-dim);
+      border-radius: 5px;
+      cursor: pointer;
+      transition: color .12s, border-color .12s;
+      white-space: nowrap;
+    }
+    button.help-btn:hover { color: var(--fg-mid); border-color: var(--fg-dim); }
+
+    /* ── Upload ── */
+    .upload-area {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .drop-zone {
+      border: 1px dashed var(--border-mid);
+      border-radius: 7px;
+      padding: 18px;
+      text-align: center;
+      color: var(--fg-dim);
+      cursor: pointer;
+      transition: border-color .12s, color .12s, background .12s;
+      font-size: 13px;
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: var(--accent);
+      color: var(--accent-fg);
+      background: color-mix(in srgb, var(--accent) 5%, transparent);
+    }
+    .drop-zone input { display: none; }
+
+    .pending-list { display: flex; flex-direction: column; gap: 6px; }
+
+    .pending-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 11px;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      flex-wrap: wrap;
+    }
+
+    .pending-item .fname {
+      flex: 1;
+      min-width: 140px;
+      color: var(--fg-mid);
+      font-size: 12.5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pending-item select, .pending-item label {
+      font-size: 12px;
+      color: var(--fg-mid);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .pending-item select {
+      background: var(--bg-input);
+      border: 1px solid var(--border-mid);
+      border-radius: 4px;
+      color: var(--fg-mid);
+      padding: 3px 6px;
+      font-size: 12px;
+    }
+
+    .pending-item input[type=checkbox] { accent-color: var(--accent); }
+
+    /* ── Buttons ── */
+    button {
+      padding: 5px 13px;
+      border: 1px solid var(--border-mid);
+      border-radius: 5px;
+      background: var(--bg-raised);
+      color: var(--fg-mid);
+      cursor: pointer;
+      font-size: 13px;
+      transition: background .12s, border-color .12s, color .12s;
+      white-space: nowrap;
+    }
+
+    button:hover:not(:disabled) { background: #26262e; border-color: #3a3a46; color: var(--fg-primary); }
+    button:disabled { opacity: 0.3; cursor: default; }
+
+    button.primary {
+      background: var(--accent-bg);
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--border-mid));
+      color: var(--accent-fg);
+    }
+    button.primary:hover:not(:disabled) { background: #112d48; }
+
+    button.danger { background: var(--red-bg); border-color: #501818; color: var(--red); }
+    button.danger:hover:not(:disabled) { background: #321414; }
+
+    button.small { padding: 3px 9px; font-size: 12px; }
+
+    /* ── Jobs list ── */
+    #jobs-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .job-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      overflow: hidden;
+      transition: border-color .1s;
+    }
+    .job-card:hover { border-color: var(--border-mid); }
+
+    .job-header {
+      padding: 9px 13px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .job-header .name {
+      flex: 1;
+      min-width: 0;
+      color: var(--fg-mid);
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .backend-tag {
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      padding: 2px 7px;
+      border-radius: 3px;
+      color: var(--accent-fg);
+      background: var(--accent-bg);
+      flex-shrink: 0;
+      font-weight: 600;
+    }
+    .backend-tag.gemini { color: var(--violet-fg); background: var(--violet-bg); }
+
+    .status-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      color: var(--fg-dim);
+      background: var(--bg-raised);
+      flex-shrink: 0;
+    }
+    .status-badge.processing { color: var(--amber); background: var(--amber-bg); }
+    .status-badge.completed  { color: var(--green); background: var(--green-bg); }
+    .status-badge.failed     { color: var(--red);   background: var(--red-bg); }
+
+    .job-info {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 3px 10px;
+      padding: 9px 13px;
+      font-size: 12px;
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+    }
+    .job-info .info-key { color: var(--fg-muted); }
+    .job-info .info-val { color: var(--fg-dim); }
+    .job-info button { grid-column: 1 / -1; margin-top: 6px; }
+
+    .job-body {
+      display: none;
+      padding: 10px 13px 13px;
+    }
+    .job-body.open { display: block; }
+
+    .job-error {
+      color: var(--red);
+      font-size: 12px;
+      margin-bottom: 8px;
+      padding: 6px 8px;
+      background: var(--red-bg);
+      border-radius: 4px;
+      white-space: pre-wrap;
+    }
+
+    .export-row {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .transcript-content {
+      max-height: 320px;
+      overflow-y: auto;
+      font-size: 13px;
+      line-height: 1.65;
+      color: var(--fg-primary);
+    }
+
+    .speaker-group { margin-bottom: 12px; }
+    .speaker-name {
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 5px;
+    }
+    .seg-line { display: flex; gap: 8px; margin-bottom: 3px; }
+    .seg-line .ts {
+      font-size: 10px;
+      color: var(--fg-muted);
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+      padding-top: 2px;
+    }
+
+    .empty-hint {
+      color: var(--fg-muted);
+      font-style: italic;
+      font-size: 13px;
+      padding: 28px 20px;
+      text-align: center;
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 9px 20px;
+      background: var(--bg-surface);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-shrink: 0;
+    }
+
+    .footer-byline {
+      font-size: 10.5px;
+      color: var(--fg-muted);
+      letter-spacing: 0.1px;
+    }
+
+    .footer-byline a {
+      color: var(--fg-dim);
+      text-decoration: none;
+    }
+
+    .footer-byline a:hover { color: var(--fg-mid); }
+
+    /* ── Modal de ajuda ── */
+    .modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-mid);
+      border-radius: 10px;
+      width: min(640px, 95vw);
+      max-height: 85vh;
+      overflow-y: auto;
+      padding: 24px;
+      position: relative;
+    }
+
+    .modal h2 {
+      font-size: 15px;
+      color: var(--fg-primary);
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+
+    .modal h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--fg-muted);
+      margin: 18px 0 8px;
+      font-weight: 600;
+    }
+
+    .modal p, .modal li {
+      font-size: 13px;
+      color: var(--fg-dim);
+      line-height: 1.65;
+    }
+
+    .modal ul { padding-left: 18px; }
+    .modal li { margin-bottom: 4px; }
+
+    .modal table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    .modal th {
+      text-align: left;
+      color: var(--fg-muted);
+      font-weight: 500;
+      padding: 4px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal td {
+      color: var(--fg-dim);
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--bg-raised);
+      vertical-align: top;
+    }
+
+    .modal td:first-child { color: var(--violet-fg); white-space: nowrap; }
+
+    .modal .mode-badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: var(--accent-bg);
+      color: var(--accent-fg);
+      font-weight: 600;
+      letter-spacing: 0.4px;
+    }
+    .modal .mode-badge.sync { background: var(--green-bg); color: var(--green); }
+
+    .modal code {
+      font-size: 11.5px;
+      font-family: 'Consolas', 'Cascadia Code', monospace;
+      color: var(--accent-fg);
+      background: var(--bg-raised);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      background: none;
+      border: none;
+      color: var(--fg-muted);
+      font-size: 17px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: color .12s, background .12s;
+    }
+    .modal-close:hover { color: var(--fg-mid); background: var(--bg-raised); }
+
+    @media (max-width: 600px) {
+      header { padding: 0 14px; }
+      .upload-area, #jobs-list { padding-left: 14px; padding-right: 14px; }
+      footer { padding: 9px 14px; }
+      .logo-name { font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <svg class="logo-icon" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="1"  y="20" width="3" height="9"  rx="1.5" fill="#4a8fd4" opacity=".42"/>
+      <rect x="6"  y="15" width="3" height="14" rx="1.5" fill="#4a8fd4" opacity=".6"/>
+      <rect x="11" y="10" width="3" height="19" rx="1.5" fill="#4a8fd4" opacity=".78"/>
+      <rect x="16" y="5"  width="3" height="24" rx="1.5" fill="#4a8fd4"/>
+      <rect x="21" y="12" width="3" height="17" rx="1.5" fill="#4a8fd4" opacity=".7"/>
+      <rect x="26" y="18" width="3" height="11" rx="1.5" fill="#4a8fd4" opacity=".48"/>
+      <!-- cursor -->
+      <rect x="14.5" y="3" width="2" height="24" rx="1" fill="#e2e2e8" opacity=".85"/>
+    </svg>
+    <div class="logo-text">
+      <span class="logo-name">Aschenbach Transcriptor</span>
+      <span class="logo-sub">Transcrição de arquivos — Whisper local ou Gemini</span>
+    </div>
+  </div>
+  <button class="help-btn" id="btn-help">Ajuda</button>
+</header>
+
+<div class="modal-overlay" id="help-modal">
+  <div class="modal">
+    <button class="modal-close" id="btn-close-help">✕</button>
+    <h2>Guia de transcrição</h2>
+
+    <h3>Backends</h3>
+    <ul>
+      <li><strong style="color:var(--fg-mid)">Whisper (local)</strong> — Transcrição offline na sua máquina. Nenhum dado sai para a internet. Ideal para arquivos curtos ou quando há restrição de privacidade.</li>
+      <li><strong style="color:var(--fg-mid)">Gemini</strong> — Transcrição via API do Google. Requer chave <code>GEMINI_API_KEY</code> configurada no <code>.env</code>. Resultados geralmente mais precisos para português e sotaques.</li>
+    </ul>
+
+    <h3>Modelos Gemini</h3>
+    <table id="help-models-table">
+      <thead><tr><th>Modelo</th><th>Modo</th><th>Quando usar</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <h3>Modos de processamento Gemini</h3>
+    <ul>
+      <li><strong style="color:var(--fg-mid)">Síncrono</strong> — A conexão fica aberta até a resposta chegar. Resultado imediato ao concluir. Limite de 30 min por chunk (arquivos maiores são divididos automaticamente).</li>
+      <li><strong style="color:var(--fg-mid)">Batch (assíncrono)</strong> — O arquivo é enviado e processado em segundo plano pelo Google. Você pode fechar o navegador e voltar depois. Use o botão <em>Verificar agora</em> para checar o status. Resultados ficam disponíveis por 48 h após a conclusão.</li>
+    </ul>
+
+    <h3>Modelos Whisper</h3>
+    <ul>
+      <li>Modelos maiores são mais precisos, mas mais lentos e ocupam mais espaço em disco.</li>
+      <li>O símbolo <strong>✓</strong> indica que o modelo já está baixado localmente.</li>
+      <li>Modelos marcados como <em>Quantizado</em> requerem token do Hugging Face (<code>HUGGING_FACE_HUB_TOKEN</code>) configurado no <code>.env</code>.</li>
+    </ul>
+
+    <h3>Configuração</h3>
+    <ul>
+      <li>Modelos Gemini disponíveis são definidos em <code>gemini_models.toml</code> na raiz do projeto — edite para adicionar ou atualizar modelos sem tocar no código.</li>
+      <li>O modelo padrão é definido por <code>GEMINI_DEFAULT_MODEL</code> no <code>.env</code> (valores: <code>transcribe</code>, <code>recommended</code>, <code>lite</code>, <code>difficult</code>).</li>
+    </ul>
+  </div>
+</div>
+
+<div class="upload-area">
+  <div class="drop-zone" id="drop-zone">
+    Clique ou arraste arquivos de áudio/vídeo aqui
+    <input type="file" id="file-input" multiple accept="audio/*,video/*" />
+  </div>
+  <div class="pending-list" id="pending-list"></div>
+  <div>
+    <button class="primary" id="btn-upload" disabled>Enviar para transcrição</button>
+  </div>
+</div>
+
+<div id="jobs-list"></div>
+
+<footer>
+  <span class="footer-byline">by <a href="https://github.com/aaschenbach" target="_blank" rel="noopener">Alexandre Aschenbach</a></span>
+</footer>
+
+<script>
+  const dropZone    = document.getElementById('drop-zone');
+  const fileInput   = document.getElementById('file-input');
+  const pendingList = document.getElementById('pending-list');
+  const btnUpload   = document.getElementById('btn-upload');
+  const jobsList    = document.getElementById('jobs-list');
+
+  let pendingFiles = [];
+  let modelsStatus = [];
+  let appConfig = { has_hf_token: false, has_gemini_key: false, gemini_models: [], gemini_default_model: 'gemini-3.5-flash' };
+
+  Promise.all([
+    fetch('/config').then(r => r.json()).catch(() => ({})),
+    fetch('/models').then(r => r.json()).catch(() => []),
+  ]).then(([cfg, models]) => {
+    appConfig = { ...appConfig, ...cfg };
+    modelsStatus = models;
+    renderPending();
+  });
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    addFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
+
+  function addFiles(fileListObj) {
+    for (const file of fileListObj) {
+      pendingFiles.push({ file, backend: 'whisper', model: 'base', diarization: true, word_timestamps: true, gemini_model: appConfig.gemini_default_model });
+    }
+    renderPending();
+  }
+
+  function renderPending() {
+    pendingList.innerHTML = '';
+    pendingFiles.forEach((item, idx) => {
+      const row = document.createElement('div');
+      row.className = 'pending-item';
+
+      const name = document.createElement('span');
+      name.className = 'fname';
+      name.textContent = item.file.name;
+      row.appendChild(name);
+
+      const backendSelect = document.createElement('select');
+      const geminiDisabled = !appConfig.has_gemini_key ? ' disabled title="GEMINI_API_KEY não configurado"' : '';
+      backendSelect.innerHTML = `<option value="whisper">Whisper (local)</option><option value="gemini"${geminiDisabled}>Gemini</option>`;
+      if (!appConfig.has_gemini_key && item.backend === 'gemini') item.backend = 'whisper';
+      backendSelect.value = item.backend;
+      backendSelect.addEventListener('change', () => { item.backend = backendSelect.value; renderPending(); });
+      row.appendChild(backendSelect);
+
+      if (item.backend === 'whisper') {
+        const modelWrap = document.createElement('span');
+        modelWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
+
+        const modelSelect = document.createElement('select');
+        const groups = {};
+        modelsStatus.forEach(m => {
+          const g = m.group || 'Outros';
+          if (!groups[g]) groups[g] = [];
+          groups[g].push(m);
+        });
+        if (modelsStatus.length === 0) {
+          ['tiny','base','small','medium'].forEach(n => {
+            const o = document.createElement('option'); o.value = n; o.textContent = n; modelSelect.appendChild(o);
+          });
+        } else {
+          Object.entries(groups).forEach(([gname, items]) => {
+            const og = document.createElement('optgroup');
+            og.label = gname;
+            items.forEach(m => {
+              const opt = document.createElement('option');
+              opt.value = m.name;
+              const sz = m.size_mb >= 1000 ? (m.size_mb/1000).toFixed(1)+' GB' : m.size_mb+' MB';
+              opt.textContent = m.local ? `${m.name} ✓` : `${m.name} (~${sz})`;
+              og.appendChild(opt);
+            });
+            modelSelect.appendChild(og);
+          });
+        }
+        if ([...modelSelect.options].some(o => o.value === item.model)) {
+          modelSelect.value = item.model;
+        }
+
+        modelSelect.addEventListener('change', () => { item.model = modelSelect.value; });
+
+        modelWrap.appendChild(modelSelect);
+        row.appendChild(modelWrap);
+      } else {
+        const gmodelSelect = document.createElement('select');
+        gmodelSelect.title = 'Modelo Gemini';
+        const gmodels = appConfig.gemini_models.length ? appConfig.gemini_models : [{ id: appConfig.gemini_default_model, label: appConfig.gemini_default_model }];
+        gmodels.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = m.label || m.id;
+          if (m.description) opt.title = m.description;
+          gmodelSelect.appendChild(opt);
+        });
+        gmodelSelect.value = item.gemini_model || appConfig.gemini_default_model;
+        gmodelSelect.addEventListener('change', () => { item.gemini_model = gmodelSelect.value; renderPending(); });
+        row.appendChild(gmodelSelect);
+
+        const selectedModel = gmodels.find(m => m.id === (item.gemini_model || appConfig.gemini_default_model));
+        const isSync = selectedModel && selectedModel.mode === 'sync';
+
+        if (isSync) {
+          const diaLabel = document.createElement('label');
+          const diaCheck = document.createElement('input');
+          diaCheck.type = 'checkbox';
+          diaCheck.checked = item.diarization;
+          diaCheck.addEventListener('change', () => { item.diarization = diaCheck.checked; });
+          diaLabel.appendChild(diaCheck);
+          diaLabel.appendChild(document.createTextNode('Diarização'));
+          row.appendChild(diaLabel);
+
+          const tsLabel = document.createElement('label');
+          const tsCheck = document.createElement('input');
+          tsCheck.type = 'checkbox';
+          tsCheck.checked = item.word_timestamps;
+          tsCheck.addEventListener('change', () => { item.word_timestamps = tsCheck.checked; });
+          tsLabel.appendChild(tsCheck);
+          tsLabel.appendChild(document.createTextNode('Timestamps'));
+          row.appendChild(tsLabel);
+        }
+      }
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'small';
+      removeBtn.textContent = 'Remover';
+      removeBtn.addEventListener('click', () => { pendingFiles.splice(idx, 1); renderPending(); });
+      row.appendChild(removeBtn);
+
+      pendingList.appendChild(row);
+    });
+    btnUpload.disabled = pendingFiles.length === 0;
+  }
+
+  btnUpload.addEventListener('click', async () => {
+    const formData = new FormData();
+    for (const item of pendingFiles) {
+      formData.append('files', item.file);
+      formData.append('backend', item.backend);
+      formData.append('model', item.model);
+      formData.append('diarization', item.diarization ? 'true' : 'false');
+      formData.append('word_timestamps', item.word_timestamps ? 'true' : 'false');
+      formData.append('initial_prompt', '');
+      formData.append('gemini_model', item.gemini_model || appConfig.gemini_default_model);
+    }
+
+    btnUpload.disabled = true;
+    try {
+      const resp = await fetch('/jobs', { method: 'POST', body: formData });
+      if (!resp.ok) throw new Error(await resp.text());
+      pendingFiles = [];
+      renderPending();
+      await refreshJobs();
+    } catch (err) {
+      alert('Erro ao enviar arquivos: ' + err.message);
+      btnUpload.disabled = pendingFiles.length === 0;
+    }
+  });
+
+  const openJobs = new Set();
+
+  function statusLabel(status) {
+    return { pending: 'pendente', processing: 'processando', completed: 'concluído', failed: 'falhou' }[status] || status;
+  }
+
+  function formatTs(seconds) {
+    const total = Math.floor(seconds);
+    const h = String(Math.floor(total / 3600)).padStart(2, '0');
+    const m = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+    const s = String(total % 60).padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  }
+
+  function escHtml(s) {
+    return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function renderTranscript(result) {
+    if (!result || result.length === 0) {
+      return '<div class="empty-hint">Nenhum segmento transcrito.</div>';
+    }
+    const groups = {};
+    for (const seg of result) {
+      (groups[seg.speaker] = groups[seg.speaker] || []).push(seg);
+    }
+    let html = '';
+    for (const [speaker, segs] of Object.entries(groups)) {
+      html += `<div class="speaker-group"><div class="speaker-name">${escHtml(speaker)}</div>`;
+      for (const seg of segs) {
+        html += `<div class="seg-line"><span class="ts">${formatTs(seg.start)}</span><span>${escHtml(seg.text)}</span></div>`;
+      }
+      html += '</div>';
+    }
+    return html;
+  }
+
+  function downloadExport(jobId, filename, format) {
+    window.location.href = `/jobs/${jobId}/export?format=${format}`;
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  }
+
+  function geminiModelLabel(modelId) {
+    const m = (appConfig.gemini_models || []).find(x => x.id === modelId);
+    return m ? m.label : (modelId || '—');
+  }
+
+  async function checkJob(jobId) {
+    const resp = await fetch(`/jobs/${jobId}/check`, { method: 'POST' });
+    await resp.json();
+    await refreshJobs();
+  }
+
+  async function refreshJobs() {
+    const resp = await fetch('/jobs');
+    const jobs = await resp.json();
+
+    jobsList.innerHTML = '';
+
+    if (jobs.length === 0) {
+      jobsList.innerHTML = '<div class="empty-hint">Nenhuma transcrição ainda. Envie um arquivo acima.</div>';
+      return;
+    }
+
+    for (const job of jobs) {
+      const card = document.createElement('div');
+      card.className = 'job-card';
+
+      const header = document.createElement('div');
+      header.className = 'job-header';
+
+      const backendTag = document.createElement('span');
+      const isGemini = job.backend === 'gemini';
+      backendTag.className = 'backend-tag' + (isGemini ? ' gemini' : '');
+      backendTag.textContent = job.backend;
+      header.appendChild(backendTag);
+
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = job.filename;
+      header.appendChild(name);
+
+      const badge = document.createElement('span');
+      badge.className = 'status-badge ' + job.status;
+      badge.textContent = job.status === 'processing' && job.backend === 'whisper'
+        ? 'processando…'
+        : statusLabel(job.status);
+      header.appendChild(badge);
+
+      const body = document.createElement('div');
+      body.className = 'job-body' + (openJobs.has(job.id) ? ' open' : '');
+
+      if (job.error) {
+        const err = document.createElement('div');
+        err.className = 'job-error';
+        err.textContent = job.error;
+        body.appendChild(err);
+      }
+
+      if (isGemini) {
+        const info = document.createElement('div');
+        info.className = 'job-info';
+        const modelId = job.options && job.options.gemini_model;
+        const rows = [
+          ['Modelo', geminiModelLabel(modelId)],
+          ['Enviado em', fmtDate(job.created_at)],
+          ['Concluído em', fmtDate(job.gemini_end_time)],
+          ['Expira em', fmtDate(job.gemini_expire_at)],
+          ['Último status', job.gemini_last_state ? job.gemini_last_state.replace('JOB_STATE_', '') : '—'],
+          ['Verificado em', fmtDate(job.gemini_checked_at)],
+        ];
+        info.innerHTML = rows.map(([k, v]) => `<span class="info-key">${k}:</span><span class="info-val">${v}</span>`).join('');
+
+        if (job.status === 'processing') {
+          const checkBtn = document.createElement('button');
+          checkBtn.className = 'small';
+          checkBtn.textContent = 'Verificar agora';
+          checkBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            checkBtn.disabled = true;
+            checkBtn.textContent = 'Verificando…';
+            await checkJob(job.id);
+          });
+          info.appendChild(checkBtn);
+        }
+        body.appendChild(info);
+      }
+
+      if (job.status === 'completed') {
+        const exportRow = document.createElement('div');
+        exportRow.className = 'export-row';
+        exportRow.innerHTML = `
+          <button class="small" data-fmt="txt">Exportar .txt</button>
+          <button class="small" data-fmt="txt-clean">.txt sem timestamp</button>
+          <button class="small" data-fmt="md">Exportar .md</button>
+          <button class="small" data-fmt="md-clean">.md sem timestamp</button>`;
+        exportRow.querySelectorAll('button').forEach((btn) => {
+          btn.addEventListener('click', () => downloadExport(job.id, job.filename, btn.dataset.fmt));
+        });
+        body.appendChild(exportRow);
+
+        const transcript = document.createElement('div');
+        transcript.className = 'transcript-content';
+        transcript.innerHTML = renderTranscript(job.result);
+        body.appendChild(transcript);
+      }
+
+      header.addEventListener('click', () => {
+        if (openJobs.has(job.id)) openJobs.delete(job.id);
+        else openJobs.add(job.id);
+        body.classList.toggle('open');
+      });
+
+      card.appendChild(header);
+      card.appendChild(body);
+      jobsList.appendChild(card);
+    }
+  }
+
+  // ── Modal de ajuda ────────────────────────────────────────────────────────────
+  const helpModal    = document.getElementById('help-modal');
+  const btnHelp      = document.getElementById('btn-help');
+  const btnCloseHelp = document.getElementById('btn-close-help');
+
+  function fillHelpModels() {
+    const tbody = document.querySelector('#help-models-table tbody');
+    if (!tbody) return;
+    const models = appConfig.gemini_models || [];
+    tbody.innerHTML = models.map(m => {
+      const modeLabel = m.mode === 'sync' ? 'Síncrono' : 'Batch';
+      const modeClass = m.mode === 'sync' ? 'sync' : '';
+      return `<tr>
+        <td>${m.label || m.id}</td>
+        <td><span class="mode-badge ${modeClass}">${modeLabel}</span></td>
+        <td>${m.description || ''}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  btnHelp.addEventListener('click', () => { fillHelpModels(); helpModal.classList.add('open'); });
+  btnCloseHelp.addEventListener('click', () => helpModal.classList.remove('open'));
+  helpModal.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.classList.remove('open'); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') helpModal.classList.remove('open'); });
+
+  // Polling automático apenas para jobs Whisper
+  async function smartRefresh() {
+    await refreshJobs();
+    const resp = await fetch('/jobs');
+    const jobs = await resp.json();
+    const hasWhisperProcessing = jobs.some(j => j.backend === 'whisper' && j.status === 'processing');
+    setTimeout(smartRefresh, hasWhisperProcessing ? 2000 : 10000);
+  }
+
+  smartRefresh();
+</script>
+</body>
+</html>
