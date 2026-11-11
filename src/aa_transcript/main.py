@@ -203,7 +203,9 @@ def _process_job(job_id: str, path: Path) -> None:
         job.status = "failed"
         tb = traceback.format_exc(limit=3)
         err_msg = str(exc)
-        if "401" in err_msg or "RepositoryNotFoundError" in type(exc).__name__:
+        if isinstance(exc, gemini_backend.GeminiQuotaError):
+            job.error = err_msg
+        elif "401" in err_msg or "RepositoryNotFoundError" in type(exc).__name__:
             job.error = (
                 f"Modelo '{job.options.get('model_name')}' não encontrado ou requer autenticação "
                 f"no Hugging Face (401). Use um modelo público como 'base', 'small', 'medium' ou 'large-v3'.\n\n{tb}"

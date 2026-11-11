@@ -14,7 +14,7 @@
 key         = "transcribe"
 id          = "gemini-3.5-transcribe"
 label       = "Transcribe 3.5"
-description = "Modelo dedicado a transcrição com diarização nativa. Processamento síncrono — resultado imediato. Limite de 30 min por chunk (arquivos maiores são divididos automaticamente)."
+description = "Modelo dedicado a transcrição com diarização nativa. O áudio é dividido em blocos de até 2 min, enviados com intervalo para respeitar a cota por minuto. Arquivos longos podem levar tempo."
 mode        = "sync"
 
 [[models]]

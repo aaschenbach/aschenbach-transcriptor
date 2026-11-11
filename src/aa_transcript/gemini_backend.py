@@ -1,10 +1,13 @@
 import os
+import re
+import threading
+import time
 import tomllib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 
 from .jobs import Job, Segment
 from .media import extract_audio, get_duration_seconds, is_video, split_into_chunks
@@ -43,7 +46,11 @@ def _resolve_default() -> str:
 
 DEFAULT_GEMINI_MODEL: str = _resolve_default()
 
-LIMIT_SYNC_SECONDS  = 28 * 60   # limite do transcribe síncrono (30 min com margem)
+# Áudio usa cerca de 32 tokens/s. Dois minutos ficam bem abaixo de 10K TPM,
+# mesmo com variação na contagem; uma chamada por minuto também protege RPM.
+LIMIT_SYNC_SECONDS = 2 * 60
+SYNC_REQUEST_INTERVAL_SECONDS = 60
+SYNC_MAX_RATE_RETRIES = 5
 LIMIT_WITH_ANNOTATIONS_SECONDS = 28 * 60
 LIMIT_PLAIN_SECONDS = 58 * 60
 
@@ -64,6 +71,12 @@ TERMINAL_STATES = {
 }
 
 _client: genai.Client | None = None
+_sync_request_lock = threading.Lock()
+_last_sync_request_at: float | None = None
+
+
+class GeminiQuotaError(RuntimeError):
+    pass
 
 
 def _get_client() -> genai.Client:
@@ -104,6 +117,42 @@ def _model_mode(model_id: str) -> str:
     return "batch"
 
 
+def _generate_sync_with_rate_limit(client, model_name: str, uploaded, config):
+    """Serialize Transcribe requests across jobs and respect the local minute budget."""
+    global _last_sync_request_at
+    with _sync_request_lock:
+        retry_not_before = 0.0
+        for attempt in range(SYNC_MAX_RATE_RETRIES + 1):
+            next_slot = (_last_sync_request_at + SYNC_REQUEST_INTERVAL_SECONDS
+                         if _last_sync_request_at is not None else 0.0)
+            remaining = max(next_slot, retry_not_before) - time.monotonic()
+            if remaining > 0:
+                time.sleep(remaining)
+            _last_sync_request_at = time.monotonic()
+            try:
+                return client.models.generate_content(
+                    model=model_name, contents=[uploaded], config=config,
+                )
+            except errors.APIError as exc:
+                if exc.code != 429:
+                    raise
+                message = str(exc).lower()
+                if any(term in message for term in ("per day", "per_day", "daily", "perday")):
+                    raise GeminiQuotaError(
+                        "Cota diária do Transcribe 3.5 esgotada. Tente novamente após a renovação da cota."
+                    ) from exc
+                if attempt == SYNC_MAX_RATE_RETRIES:
+                    raise GeminiQuotaError(
+                        "O Transcribe 3.5 continua limitado pela API (429) após novas tentativas. "
+                        "Verifique o uso e os limites do projeto no Google AI Studio."
+                    ) from exc
+                # A API informa quando tentar novamente; o próximo envio deve
+                # respeitar tanto esse prazo quanto o intervalo local.
+                retry_delay = re.search(r"retry(?:delay)?[^0-9]*(\d+(?:\.\d+)?)s", message)
+                if retry_delay:
+                    retry_not_before = time.monotonic() + float(retry_delay.group(1))
+
+
 # ── Síncrono (gemini-3.5-transcribe) ─────────────────────────────────────────
 
 def submit_sync(job: Job, path: Path, chunks_dir: Path) -> None:
@@ -125,27 +174,31 @@ def submit_sync(job: Job, path: Path, chunks_dir: Path) -> None:
     )
 
     all_segments: list[Segment] = []
-    for i, chunk_path in enumerate(chunk_paths):
-        offset = i * LIMIT_SYNC_SECONDS
-        uploaded = client.files.upload(file=str(chunk_path))
-        response = client.models.generate_content(
-            model=model_name,
-            contents=[uploaded],
-            config=types.GenerateContentConfig(
-                audio_transcription_config=transcription_config,
-            ),
-        )
-        segs = _parse_transcription_parts(response.candidates, offset)
-        # fallback: se não veio audio_transcription estruturado, usa response.text
-        if not segs and getattr(response, "text", None):
-            all_segments.append(Segment(
-                speaker="transcricao",
-                text=response.text.strip(),
-                start=offset,
-                end=offset,
-            ))
-        else:
-            all_segments.extend(segs)
+    try:
+        for i, chunk_path in enumerate(chunk_paths):
+            offset = i * LIMIT_SYNC_SECONDS
+            uploaded = client.files.upload(file=str(chunk_path))
+            response = _generate_sync_with_rate_limit(
+                client, model_name, uploaded,
+                types.GenerateContentConfig(audio_transcription_config=transcription_config),
+            )
+            segs = _parse_transcription_parts(response.candidates, offset)
+            # fallback: se não veio audio_transcription estruturado, usa response.text
+            if not segs and getattr(response, "text", None):
+                all_segments.append(Segment(
+                    speaker="transcricao",
+                    text=response.text.strip(),
+                    start=offset,
+                    end=offset,
+                ))
+            else:
+                all_segments.extend(segs)
+    finally:
+        if audio_path != path and audio_path.exists():
+            audio_path.unlink()
+        for chunk_path in chunk_paths:
+            if chunk_path != audio_path and chunk_path.exists():
+                chunk_path.unlink()
 
     all_segments.sort(key=lambda s: s.start)
     job.result = all_segments
@@ -154,13 +207,6 @@ def submit_sync(job: Job, path: Path, chunks_dir: Path) -> None:
     job.gemini_end_time = now.isoformat()
     job.gemini_checked_at = now.isoformat()
     job.gemini_last_state = "COMPLETED"
-
-    if audio_path != path and audio_path.exists():
-        audio_path.unlink()
-    for chunk_path in chunk_paths:
-        if chunk_path != audio_path and chunk_path.exists():
-            chunk_path.unlink()
-
 
 # ── Batch assíncrono (flash) ──────────────────────────────────────────────────
 
