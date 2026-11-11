@@ -112,7 +112,7 @@ Downloaded models are cached in `~/.cache/huggingface/hub/`. The first run for e
 | `gemini-3.1-flash-lite` | Batch | High volume, lower cost |
 | `gemini-3.8-flash` | Batch | Noisy audio, strong accents |
 
-Transcribe 3.5 splits audio into chunks of up to 2 minutes and spaces requests at least 60 seconds apart, including across concurrent files. On `429`, the app honors `Please retry in...` and retries up to 5 times. The separate 100 requests per day limit can still be exhausted by long files or other users of the same project quota. The app reports that failure; it does not yet resume automatically the next day. Quotas apply per project, not per API key.
+Transcribe 3.5 splits audio into chunks of up to 2 minutes, prefers pauses near the cut, and keeps 2 seconds of overlap at each boundary. With timestamps, repeated segments are assigned to one chunk. Requests are spaced at least 60 seconds apart, including across concurrent files. On `429`, the app honors `Please retry in...` and retries up to 5 times. The separate 100 requests per day limit can still be exhausted by long files or other users of the same project quota. The app reports that failure; it does not yet resume automatically the next day. Quotas apply per project, not per API key.
 
 Batch results expire 48 hours after the job completes on Google's side.
 

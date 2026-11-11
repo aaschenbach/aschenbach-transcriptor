@@ -10,7 +10,7 @@ from google import genai
 from google.genai import errors, types
 
 from .jobs import Job, Segment
-from .media import extract_audio, get_duration_seconds, is_video, split_into_chunks
+from .media import AudioChunk, extract_audio, is_video, split_for_transcribe, split_into_chunks
 
 _MODELS_FILE = Path(__file__).parent.parent.parent / "gemini_models.toml"
 
@@ -110,6 +110,19 @@ def _parse_transcription_parts(candidates, offset: float) -> list[Segment]:
     return segments
 
 
+def _segments_owned_by_chunk(segments: list[Segment], chunk: AudioChunk) -> list[Segment]:
+    owned = []
+    for segment in segments:
+        if segment.start == segment.end == chunk.start:
+            # Some responses have text but no offsets. Keep it instead of
+            # discarding every chunk after the first one.
+            segment.start = segment.end = chunk.keep_from
+            owned.append(segment)
+        elif chunk.keep_from <= (segment.start + segment.end) / 2 < chunk.keep_until:
+            owned.append(segment)
+    return owned
+
+
 def _model_mode(model_id: str) -> str:
     for m in GEMINI_MODELS:
         if m["id"] == model_id:
@@ -166,7 +179,7 @@ def submit_sync(job: Job, path: Path, chunks_dir: Path) -> None:
         audio_path = path.with_suffix(".extracted.wav")
         extract_audio(path, audio_path)
 
-    chunk_paths = split_into_chunks(audio_path, LIMIT_SYNC_SECONDS, chunks_dir)
+    chunks = split_for_transcribe(audio_path, LIMIT_SYNC_SECONDS, chunks_dir)
 
     transcription_config = types.AudioTranscriptionConfig(
         diarization=diarization,
@@ -175,30 +188,30 @@ def submit_sync(job: Job, path: Path, chunks_dir: Path) -> None:
 
     all_segments: list[Segment] = []
     try:
-        for i, chunk_path in enumerate(chunk_paths):
-            offset = i * LIMIT_SYNC_SECONDS
-            uploaded = client.files.upload(file=str(chunk_path))
+        for chunk in chunks:
+            uploaded = client.files.upload(file=str(chunk.path))
             response = _generate_sync_with_rate_limit(
                 client, model_name, uploaded,
                 types.GenerateContentConfig(audio_transcription_config=transcription_config),
             )
-            segs = _parse_transcription_parts(response.candidates, offset)
+            parsed = _parse_transcription_parts(response.candidates, chunk.start)
+            segs = _segments_owned_by_chunk(parsed, chunk)
             # fallback: se não veio audio_transcription estruturado, usa response.text
-            if not segs and getattr(response, "text", None):
+            if not parsed and getattr(response, "text", None):
                 all_segments.append(Segment(
                     speaker="transcricao",
                     text=response.text.strip(),
-                    start=offset,
-                    end=offset,
+                    start=chunk.keep_from,
+                    end=chunk.keep_from,
                 ))
             else:
                 all_segments.extend(segs)
     finally:
         if audio_path != path and audio_path.exists():
             audio_path.unlink()
-        for chunk_path in chunk_paths:
-            if chunk_path != audio_path and chunk_path.exists():
-                chunk_path.unlink()
+        for chunk in chunks:
+            if chunk.path != audio_path and chunk.path.exists():
+                chunk.path.unlink()
 
     all_segments.sort(key=lambda s: s.start)
     job.result = all_segments
