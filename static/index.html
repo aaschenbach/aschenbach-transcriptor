@@ -783,7 +783,7 @@
 
     if (jobs.length === 0) {
       jobsList.innerHTML = '<div class="empty-hint">Nenhuma transcrição ainda. Envie um arquivo acima.</div>';
-      return;
+      return jobs;
     }
 
     for (const job of jobs) {
@@ -806,8 +806,8 @@
 
       const badge = document.createElement('span');
       badge.className = 'status-badge ' + job.status;
-      badge.textContent = job.status === 'processing' && job.backend === 'whisper'
-        ? 'processando…'
+      badge.textContent = job.status === 'processing' && job.chunks_total
+        ? `processando · ${job.chunks_completed || 0}/${job.chunks_total}`
         : statusLabel(job.status);
       header.appendChild(badge);
 
@@ -825,17 +825,26 @@
         const info = document.createElement('div');
         info.className = 'job-info';
         const modelId = job.options && job.options.gemini_model;
+        const isSync = (appConfig.gemini_models || []).some(m => m.id === modelId && m.mode === 'sync');
         const rows = [
           ['Modelo', geminiModelLabel(modelId)],
           ['Enviado em', fmtDate(job.created_at)],
-          ['Concluído em', fmtDate(job.gemini_end_time)],
-          ['Expira em', fmtDate(job.gemini_expire_at)],
-          ['Último status', job.gemini_last_state ? job.gemini_last_state.replace('JOB_STATE_', '') : '—'],
-          ['Verificado em', fmtDate(job.gemini_checked_at)],
         ];
+        if (job.status === 'processing') {
+          rows.push(['Etapa', job.progress_stage || (isSync
+            ? 'Transcrição em andamento. Progresso por bloco indisponível para este envio.'
+            : 'Aguardando processamento no Google')]);
+        }
+        if (job.chunks_total) rows.push(['Blocos concluídos', `${job.chunks_completed || 0} de ${job.chunks_total}`]);
+        rows.push(['Concluído em', fmtDate(job.gemini_end_time)]);
+        if (!isSync) {
+          rows.push(['Expira em', fmtDate(job.gemini_expire_at)]);
+          rows.push(['Último status', job.gemini_last_state ? job.gemini_last_state.replace('JOB_STATE_', '') : '—']);
+          rows.push(['Verificado em', fmtDate(job.gemini_checked_at)]);
+        }
         info.innerHTML = rows.map(([k, v]) => `<span class="info-key">${k}:</span><span class="info-val">${v}</span>`).join('');
 
-        if (job.status === 'processing') {
+        if (job.status === 'processing' && job.gemini_batch_name) {
           const checkBtn = document.createElement('button');
           checkBtn.className = 'small';
           checkBtn.textContent = 'Verificar agora';
@@ -879,6 +888,7 @@
       card.appendChild(body);
       jobsList.appendChild(card);
     }
+    return jobs;
   }
 
   // ── Modal de ajuda ────────────────────────────────────────────────────────────
@@ -906,13 +916,15 @@
   helpModal.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.classList.remove('open'); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') helpModal.classList.remove('open'); });
 
-  // Polling automático apenas para jobs Whisper
+  // Atualiza o progresso local de jobs ativos sem consultar o batch remoto.
   async function smartRefresh() {
-    await refreshJobs();
-    const resp = await fetch('/jobs');
-    const jobs = await resp.json();
-    const hasWhisperProcessing = jobs.some(j => j.backend === 'whisper' && j.status === 'processing');
-    setTimeout(smartRefresh, hasWhisperProcessing ? 2000 : 10000);
+    try {
+      const jobs = await refreshJobs();
+      const hasProcessing = jobs.some(j => j.status === 'processing');
+      setTimeout(smartRefresh, hasProcessing ? 2000 : 10000);
+    } catch (err) {
+      setTimeout(smartRefresh, 10000);
+    }
   }
 
   smartRefresh();

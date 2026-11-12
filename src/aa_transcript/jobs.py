@@ -38,6 +38,9 @@ class Job:
     gemini_expire_at: str | None = None
     gemini_checked_at: str | None = None
     gemini_last_state: str | None = None
+    progress_stage: str | None = None
+    chunks_total: int | None = None
+    chunks_completed: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -56,6 +59,9 @@ class Job:
             "gemini_expire_at": self.gemini_expire_at,
             "gemini_checked_at": self.gemini_checked_at,
             "gemini_last_state": self.gemini_last_state,
+            "progress_stage": self.progress_stage,
+            "chunks_total": self.chunks_total,
+            "chunks_completed": self.chunks_completed,
         }
 
     @staticmethod
@@ -76,4 +82,7 @@ class Job:
             gemini_expire_at=d.get("gemini_expire_at"),
             gemini_checked_at=d.get("gemini_checked_at"),
             gemini_last_state=d.get("gemini_last_state"),
+            progress_stage=d.get("progress_stage"),
+            chunks_total=d.get("chunks_total"),
+            chunks_completed=d.get("chunks_completed", 0),
         )

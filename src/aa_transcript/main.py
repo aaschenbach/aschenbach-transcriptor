@@ -189,6 +189,7 @@ def _process_job(job_id: str, path: Path) -> None:
     with _jobs_lock:
         job = _jobs[job_id]
     job.status = "processing"
+    job.progress_stage = "Preparando arquivo" if job.backend == "gemini" else None
     _persist()
 
     try:
@@ -198,9 +199,10 @@ def _process_job(job_id: str, path: Path) -> None:
             )
             job.status = "completed"
         else:
-            gemini_backend.submit_job(job, path, CHUNKS_DIR)
+            gemini_backend.submit_job(job, path, CHUNKS_DIR, on_progress=_persist)
     except Exception as exc:  # noqa: BLE001
         job.status = "failed"
+        job.progress_stage = None
         tb = traceback.format_exc(limit=3)
         err_msg = str(exc)
         if isinstance(exc, gemini_backend.GeminiQuotaError):

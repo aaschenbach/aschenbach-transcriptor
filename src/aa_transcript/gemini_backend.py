@@ -5,6 +5,7 @@ import time
 import tomllib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Callable
 
 from google import genai
 from google.genai import errors, types
@@ -140,7 +141,11 @@ def _model_mode(model_id: str) -> str:
     return "batch"
 
 
-def _generate_sync_with_rate_limit(client, model_name: str, uploaded, config):
+def _generate_sync_with_rate_limit(
+    client, model_name: str, uploaded, config,
+    on_wait: Callable[[], None] | None = None,
+    on_attempt: Callable[[], None] | None = None,
+):
     """Serialize Transcribe requests across jobs and respect the local minute budget."""
     global _last_sync_request_at
     with _sync_request_lock:
@@ -150,8 +155,12 @@ def _generate_sync_with_rate_limit(client, model_name: str, uploaded, config):
                          if _last_sync_request_at is not None else 0.0)
             remaining = max(next_slot, retry_not_before) - time.monotonic()
             if remaining > 0:
+                if on_wait:
+                    on_wait()
                 time.sleep(remaining)
             _last_sync_request_at = time.monotonic()
+            if on_attempt:
+                on_attempt()
             try:
                 return client.models.generate_content(
                     model=model_name, contents=[uploaded], config=config,
@@ -178,7 +187,10 @@ def _generate_sync_with_rate_limit(client, model_name: str, uploaded, config):
 
 # ── Síncrono (gemini-3.5-transcribe) ─────────────────────────────────────────
 
-def submit_sync(job: Job, path: Path, chunks_dir: Path) -> None:
+def submit_sync(
+    job: Job, path: Path, chunks_dir: Path,
+    on_progress: Callable[[], None] | None = None,
+) -> None:
     client = _get_client()
     model_name = job.options.get("gemini_model", DEFAULT_GEMINI_MODEL)
     diarization = job.options.get("diarization", True)
@@ -190,6 +202,17 @@ def submit_sync(job: Job, path: Path, chunks_dir: Path) -> None:
         extract_audio(path, audio_path)
 
     chunks = split_for_transcribe(audio_path, LIMIT_SYNC_SECONDS, chunks_dir)
+    job.chunks_total = len(chunks)
+    job.chunks_completed = 0
+
+    def report(stage: str, completed: int | None = None) -> None:
+        job.progress_stage = stage
+        if completed is not None:
+            job.chunks_completed = completed
+        if on_progress:
+            on_progress()
+
+    report("Áudio preparado")
 
     transcription_config = types.AudioTranscriptionConfig(
         diarization=diarization,
@@ -198,11 +221,14 @@ def submit_sync(job: Job, path: Path, chunks_dir: Path) -> None:
 
     all_segments: list[Segment] = []
     try:
-        for chunk in chunks:
+        for index, chunk in enumerate(chunks, start=1):
+            report(f"Enviando bloco {index}/{len(chunks)}")
             uploaded = _upload_audio(client, chunk.path)
             response = _generate_sync_with_rate_limit(
                 client, model_name, uploaded,
                 types.GenerateContentConfig(audio_transcription_config=transcription_config),
+                on_wait=lambda: report(f"Aguardando cota para o bloco {index}/{len(chunks)}"),
+                on_attempt=lambda: report(f"Transcrevendo bloco {index}/{len(chunks)}"),
             )
             parsed = _parse_transcription_parts(response.candidates, chunk.start)
             segs = _segments_owned_by_chunk(parsed, chunk)
@@ -216,6 +242,7 @@ def submit_sync(job: Job, path: Path, chunks_dir: Path) -> None:
                 ))
             else:
                 all_segments.extend(segs)
+            report(f"Bloco {index}/{len(chunks)} concluído", completed=index)
     finally:
         if audio_path != path and audio_path.exists():
             audio_path.unlink()
@@ -226,6 +253,7 @@ def submit_sync(job: Job, path: Path, chunks_dir: Path) -> None:
     all_segments.sort(key=lambda s: s.start)
     job.result = all_segments
     job.status = "completed"
+    job.progress_stage = None
     now = datetime.now(timezone.utc)
     job.gemini_end_time = now.isoformat()
     job.gemini_checked_at = now.isoformat()
@@ -233,14 +261,20 @@ def submit_sync(job: Job, path: Path, chunks_dir: Path) -> None:
 
 # ── Batch assíncrono (flash) ──────────────────────────────────────────────────
 
-def submit_job(job: Job, path: Path, chunks_dir: Path) -> None:
+def submit_job(
+    job: Job, path: Path, chunks_dir: Path,
+    on_progress: Callable[[], None] | None = None,
+) -> None:
     model_name = job.options.get("gemini_model", DEFAULT_GEMINI_MODEL)
 
     if _model_mode(model_name) == "sync":
-        submit_sync(job, path, chunks_dir)
+        submit_sync(job, path, chunks_dir, on_progress=on_progress)
         return
 
     client = _get_client()
+    job.progress_stage = "Enviando para lote Gemini"
+    if on_progress:
+        on_progress()
     audio_path = path
     if is_video(path):
         audio_path = path.with_suffix(".extracted.wav")
@@ -285,6 +319,9 @@ def submit_job(job: Job, path: Path, chunks_dir: Path) -> None:
     job.gemini_chunk_keys = list(offsets.keys())
     job.gemini_chunk_offsets = offsets
     job.status = "processing"
+    job.progress_stage = "Aguardando processamento no Google"
+    if on_progress:
+        on_progress()
 
     if audio_path != path and audio_path.exists():
         audio_path.unlink()
@@ -318,6 +355,7 @@ def poll_job(job: Job) -> None:
     else:
         job.status = "failed"
         job.error = str(batch_job.error) if batch_job.error else f"Job terminou em estado {state}."
+    job.progress_stage = None
 
 
 def _parse_batch_results(batch_job, offsets: dict[str, float]) -> list[Segment]:
