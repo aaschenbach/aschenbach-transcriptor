@@ -94,6 +94,16 @@ def _mime_type(path: Path) -> str:
     }.get(path.suffix.lower(), "audio/wav")
 
 
+def _upload_audio(client: genai.Client, path: Path):
+    # Passing a path makes the SDK put its filename in an ASCII-only HTTP header.
+    # A binary stream avoids that header, including for accented Windows paths.
+    with path.open("rb") as stream:
+        return client.files.upload(
+            file=stream,
+            config=types.UploadFileConfig(mime_type=_mime_type(path)),
+        )
+
+
 def _parse_transcription_parts(candidates, offset: float) -> list[Segment]:
     segments: list[Segment] = []
     for candidate in candidates or []:
@@ -189,7 +199,7 @@ def submit_sync(job: Job, path: Path, chunks_dir: Path) -> None:
     all_segments: list[Segment] = []
     try:
         for chunk in chunks:
-            uploaded = client.files.upload(file=str(chunk.path))
+            uploaded = _upload_audio(client, chunk.path)
             response = _generate_sync_with_rate_limit(
                 client, model_name, uploaded,
                 types.GenerateContentConfig(audio_transcription_config=transcription_config),
@@ -244,7 +254,7 @@ def submit_job(job: Job, path: Path, chunks_dir: Path) -> None:
         key = f"{job.id}_part{i}"
         offsets[key] = i * LIMIT_PLAIN_SECONDS
 
-        uploaded = client.files.upload(file=str(chunk_path))
+        uploaded = _upload_audio(client, chunk_path)
         requests.append(
             types.InlinedRequest(
                 model=model_name,
