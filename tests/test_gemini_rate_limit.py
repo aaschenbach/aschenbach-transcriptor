@@ -31,7 +31,7 @@ class Models:
 
 class RateLimitTests(unittest.TestCase):
     def setUp(self):
-        gemini_backend._last_sync_request_at = None
+        gemini_backend._sync_request_times.clear()
         self.clock = Clock()
         self.monotonic = patch.object(gemini_backend.time, "monotonic", self.clock.monotonic)
         self.sleep = patch.object(gemini_backend.time, "sleep", self.clock.sleep)
@@ -41,14 +41,14 @@ class RateLimitTests(unittest.TestCase):
     def tearDown(self):
         self.sleep.stop()
         self.monotonic.stop()
-        gemini_backend._last_sync_request_at = None
+        gemini_backend._sync_request_times.clear()
 
-    def test_requests_are_spaced_across_jobs(self):
+    def test_two_requests_fit_one_minute_and_third_waits(self):
         models = Models()
         client = type("Client", (), {"models": models})()
-        for _ in range(2):
+        for _ in range(3):
             gemini_backend._generate_sync_with_rate_limit(client, "model", "audio", "config")
-        self.assertEqual(len(models.calls), 2)
+        self.assertEqual(len(models.calls), 3)
         self.assertEqual(self.clock.now, 1060.0)
 
     def test_429_waits_for_both_api_retry_and_local_slot(self):
@@ -59,12 +59,21 @@ class RateLimitTests(unittest.TestCase):
         self.assertEqual(len(models.calls), 2)
         self.assertEqual(self.clock.now, 1075.5)
 
-    def test_short_api_retry_still_respects_local_minute(self):
+    def test_short_api_retry_uses_reported_delay_when_slot_available(self):
         rate_error = errors.ClientError(429, {"error": {"message": "Please retry in 4.475638875s"}})
         models = Models([rate_error])
         client = type("Client", (), {"models": models})()
         gemini_backend._generate_sync_with_rate_limit(client, "model", "audio", "config")
         self.assertEqual(len(models.calls), 2)
+        self.assertEqual(self.clock.now, 1004.475638875)
+
+    def test_retry_waits_for_local_window_when_two_slots_are_used(self):
+        rate_error = errors.ClientError(429, {"error": {"message": "Please retry in 4s"}})
+        models = Models([rate_error])
+        client = type("Client", (), {"models": models})()
+        gemini_backend._generate_sync_with_rate_limit(client, "model", "audio", "config")
+        gemini_backend._generate_sync_with_rate_limit(client, "model", "audio", "config")
+        self.assertEqual(len(models.calls), 3)
         self.assertEqual(self.clock.now, 1060.0)
 
     def test_daily_quota_does_not_loop(self):

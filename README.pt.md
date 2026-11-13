@@ -112,7 +112,7 @@ Os modelos baixados ficam em cache em `~/.cache/huggingface/hub/`. A primeira ex
 | `gemini-3.1-flash-lite` | Batch | Alto volume, menor custo |
 | `gemini-3.8-flash` | Batch | Áudio ruidoso, sotaque forte |
 
-O Transcribe 3.5 divide o áudio em blocos de até 2 minutos, procura pausas próximas dos cortes e mantém 2 segundos de sobreposição nas bordas. Com timestamps, trechos repetidos são atribuídos a um único bloco. As chamadas são espaçadas em pelo menos 60 segundos, inclusive entre arquivos em execução. Se a API responder `429`, o app respeita o prazo `Please retry in...` e faz até 5 novas tentativas. O limite de 100 requisições por dia é separado: arquivos muito longos ou outros consumidores da mesma cota podem esgotá-lo. Nesse caso, o app informa a falha; ainda não retoma automaticamente no dia seguinte. A cota é por projeto, não por chave de API.
+O Transcribe 3.5 divide o áudio em blocos de até 2 minutos, procura pausas próximas dos cortes e mantém 2 segundos de sobreposição nas bordas. Com timestamps, trechos repetidos são atribuídos a um único bloco. O app permite até duas chamadas por janela de 60 segundos, inclusive entre arquivos em execução, mantendo margem para o limite de 10 mil tokens por minuto informado pelo projeto. Se a API responder `429`, o app respeita o prazo `Please retry in...` e faz até 5 novas tentativas. O limite de 100 requisições por dia é separado: arquivos muito longos ou outros consumidores da mesma cota podem esgotá-lo. Nesse caso, o app informa a falha; ainda não retoma automaticamente no dia seguinte. A cota é por projeto, não por chave de API.
 
 Resultados batch expiram 48 horas após a conclusão do job no Google.
 

@@ -3,6 +3,7 @@ import re
 import threading
 import time
 import tomllib
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -47,10 +48,11 @@ def _resolve_default() -> str:
 
 DEFAULT_GEMINI_MODEL: str = _resolve_default()
 
-# Áudio usa cerca de 32 tokens/s. Dois minutos ficam bem abaixo de 10K TPM,
-# mesmo com variação na contagem; uma chamada por minuto também protege RPM.
+# Áudio usa cerca de 32 tokens/s: dois blocos de 2 min somam ~7,7K tokens.
+# Isso aproveita o TPM de 10K com margem e fica abaixo dos 10 RPM do projeto.
 LIMIT_SYNC_SECONDS = 2 * 60
-SYNC_REQUEST_INTERVAL_SECONDS = 60
+SYNC_REQUEST_WINDOW_SECONDS = 60
+SYNC_REQUESTS_PER_WINDOW = 2
 SYNC_MAX_RATE_RETRIES = 5
 LIMIT_WITH_ANNOTATIONS_SECONDS = 28 * 60
 LIMIT_PLAIN_SECONDS = 58 * 60
@@ -73,7 +75,7 @@ TERMINAL_STATES = {
 
 _client: genai.Client | None = None
 _sync_request_lock = threading.Lock()
-_last_sync_request_at: float | None = None
+_sync_request_times: deque[float] = deque()
 
 
 class GeminiQuotaError(RuntimeError):
@@ -147,18 +149,22 @@ def _generate_sync_with_rate_limit(
     on_attempt: Callable[[], None] | None = None,
 ):
     """Serialize Transcribe requests across jobs and respect the local minute budget."""
-    global _last_sync_request_at
     with _sync_request_lock:
         retry_not_before = 0.0
         for attempt in range(SYNC_MAX_RATE_RETRIES + 1):
-            next_slot = (_last_sync_request_at + SYNC_REQUEST_INTERVAL_SECONDS
-                         if _last_sync_request_at is not None else 0.0)
-            remaining = max(next_slot, retry_not_before) - time.monotonic()
-            if remaining > 0:
+            while True:
+                now = time.monotonic()
+                while _sync_request_times and now - _sync_request_times[0] >= SYNC_REQUEST_WINDOW_SECONDS:
+                    _sync_request_times.popleft()
+                next_slot = (_sync_request_times[0] + SYNC_REQUEST_WINDOW_SECONDS
+                             if len(_sync_request_times) >= SYNC_REQUESTS_PER_WINDOW else 0.0)
+                remaining = max(next_slot, retry_not_before) - now
+                if remaining <= 0:
+                    break
                 if on_wait:
                     on_wait()
                 time.sleep(remaining)
-            _last_sync_request_at = time.monotonic()
+            _sync_request_times.append(time.monotonic())
             if on_attempt:
                 on_attempt()
             try:
@@ -178,8 +184,7 @@ def _generate_sync_with_rate_limit(
                         "O Transcribe 3.5 continua limitado pela API (429) após novas tentativas. "
                         "Verifique o uso e os limites do projeto no Google AI Studio."
                     ) from exc
-                # A API informa quando tentar novamente; o próximo envio deve
-                # respeitar tanto esse prazo quanto o intervalo local.
+                # A próxima tentativa respeita o prazo da API e a janela local.
                 retry_delay = re.search(r"retry(?:delay)?[^0-9]*(\d+(?:\.\d+)?)s", message)
                 if retry_delay:
                     retry_not_before = time.monotonic() + float(retry_delay.group(1))
