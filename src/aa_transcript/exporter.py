@@ -26,18 +26,21 @@ def _join_texts(segs: list[Segment]) -> str:
     return text.strip()
 
 
-def _group_by_speaker(segments: list[Segment]) -> dict[str, list[Segment]]:
-    groups: dict[str, list[Segment]] = {}
+def _speaker_turns(segments: list[Segment]) -> list[tuple[str, list[Segment]]]:
+    groups: list[tuple[str, list[Segment]]] = []
     for seg in segments:
-        groups.setdefault(seg.speaker, []).append(seg)
+        if groups and groups[-1][0] == seg.speaker:
+            groups[-1][1].append(seg)
+        else:
+            groups.append((seg.speaker, [seg]))
     return groups
 
 
 def _build_txt(segments: list[Segment], timestamps: bool) -> str:
-    groups = _group_by_speaker(segments)
+    groups = _speaker_turns(segments)
     lines = []
 
-    for speaker, segs in groups.items():
+    for speaker, segs in groups:
         lines.append(f"=== {speaker.upper()} ===")
         if timestamps:
             for s in segs:
@@ -53,10 +56,10 @@ def _build_txt(segments: list[Segment], timestamps: bool) -> str:
 
 
 def _build_md(segments: list[Segment], timestamps: bool) -> str:
-    groups = _group_by_speaker(segments)
+    groups = _speaker_turns(segments)
     lines = ["# Transcrição\n"]
 
-    for speaker, segs in groups.items():
+    for speaker, segs in groups:
         lines.append(f"## {speaker}\n")
         if timestamps:
             for s in segs:

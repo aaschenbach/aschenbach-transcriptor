@@ -18,7 +18,8 @@ load_dotenv()
 if (hf_token := os.getenv("HUGGING_FACE_HUB_TOKEN")) and not os.getenv("HF_TOKEN"):
     os.environ["HF_TOKEN"] = hf_token
 
-from . import gemini_backend, store
+from . import assemblyai_backend, gemini_backend, store
+from .assemblyai_backend import ASSEMBLYAI_MODELS, DEFAULT_ASSEMBLYAI_MODEL
 from .gemini_backend import DEFAULT_GEMINI_MODEL, GEMINI_MODELS
 from .store import purge_old_jobs
 from .exporter import export_segments
@@ -74,6 +75,9 @@ async def get_config() -> dict:
     return {
         "has_hf_token": bool(os.getenv("HUGGING_FACE_HUB_TOKEN")),
         "has_gemini_key": bool(os.getenv("GEMINI_API_KEY")),
+        "has_assemblyai_key": bool(os.getenv("ASSEMBLYAI_API_KEY")),
+        "assemblyai_models": ASSEMBLYAI_MODELS,
+        "assemblyai_default_model": DEFAULT_ASSEMBLYAI_MODEL,
         "gemini_models": GEMINI_MODELS,
         "gemini_default_model": DEFAULT_GEMINI_MODEL,
     }
@@ -140,12 +144,14 @@ async def create_jobs(
     word_timestamps: list[str] = None,
     initial_prompt: list[str] = None,
     gemini_model: list[str] = None,
+    assemblyai_model: list[str] = None,
 ) -> list[dict]:
     model = model or []
     diarization = diarization or []
     word_timestamps = word_timestamps or []
     initial_prompt = initial_prompt or []
     gemini_model = gemini_model or []
+    assemblyai_model = assemblyai_model or []
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     created = []
@@ -161,7 +167,7 @@ async def create_jobs(
                 "model_name": safe_model,
                 "initial_prompt": initial_prompt[i] if i < len(initial_prompt) else "",
             }
-        else:
+        elif job_backend == "gemini":
             raw_gmodel = gemini_model[i] if i < len(gemini_model) else DEFAULT_GEMINI_MODEL
             allowed_gmodels = {m["id"] for m in GEMINI_MODELS}
             safe_gmodel = raw_gmodel if raw_gmodel in allowed_gmodels else DEFAULT_GEMINI_MODEL
@@ -170,6 +176,15 @@ async def create_jobs(
                 "diarization": (diarization[i] if i < len(diarization) else "true") == "true",
                 "word_timestamps": (word_timestamps[i] if i < len(word_timestamps) else "true") == "true",
             }
+        elif job_backend == "assemblyai":
+            raw_model = assemblyai_model[i] if i < len(assemblyai_model) else DEFAULT_ASSEMBLYAI_MODEL
+            allowed_models = {m["id"] for m in ASSEMBLYAI_MODELS}
+            job.options = {
+                "assemblyai_model": raw_model if raw_model in allowed_models else DEFAULT_ASSEMBLYAI_MODEL,
+                "diarization": (diarization[i] if i < len(diarization) else "true") == "true",
+            }
+        else:
+            return PlainTextResponse("Backend inválido", status_code=400)
 
         dest_path = UPLOAD_DIR / f"{job.id}_{upload.filename}"
         with dest_path.open("wb") as f:
@@ -189,7 +204,7 @@ def _process_job(job_id: str, path: Path) -> None:
     with _jobs_lock:
         job = _jobs[job_id]
     job.status = "processing"
-    job.progress_stage = "Preparando arquivo" if job.backend == "gemini" else None
+    job.progress_stage = "Preparando arquivo" if job.backend in {"gemini", "assemblyai"} else None
     _persist()
 
     try:
@@ -198,8 +213,10 @@ def _process_job(job_id: str, path: Path) -> None:
                 path, job.options.get("model_name", "base"), job.options.get("initial_prompt", "")
             )
             job.status = "completed"
-        else:
+        elif job.backend == "gemini":
             gemini_backend.submit_job(job, path, CHUNKS_DIR, on_progress=_persist)
+        elif job.backend == "assemblyai":
+            assemblyai_backend.run_assemblyai(job, path, on_progress=_persist)
     except Exception as exc:  # noqa: BLE001
         job.status = "failed"
         job.progress_stage = None
@@ -207,11 +224,13 @@ def _process_job(job_id: str, path: Path) -> None:
         err_msg = str(exc)
         if isinstance(exc, gemini_backend.GeminiQuotaError):
             job.error = err_msg
-        elif "401" in err_msg or "RepositoryNotFoundError" in type(exc).__name__:
+        elif job.backend == "whisper" and ("401" in err_msg or "RepositoryNotFoundError" in type(exc).__name__):
             job.error = (
                 f"Modelo '{job.options.get('model_name')}' não encontrado ou requer autenticação "
                 f"no Hugging Face (401). Use um modelo público como 'base', 'small', 'medium' ou 'large-v3'.\n\n{tb}"
             )
+        elif job.backend == "assemblyai":
+            job.error = err_msg
         else:
             job.error = tb
         logger.error("job=%s backend=%s model=%s\n%s", job.id, job.backend, job.options.get("model_name"), tb)

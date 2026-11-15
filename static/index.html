@@ -250,6 +250,7 @@
       font-weight: 600;
     }
     .backend-tag.gemini { color: var(--violet-fg); background: var(--violet-bg); }
+    .backend-tag.assemblyai { color: var(--green); background: var(--green-bg); }
 
     .status-badge {
       font-size: 11px;
@@ -488,7 +489,7 @@
     </svg>
     <div class="logo-text">
       <span class="logo-name">Aschenbach Transcriptor</span>
-      <span class="logo-sub">Transcrição de arquivos — Whisper local ou Gemini</span>
+      <span class="logo-sub">Transcrição de arquivos — Whisper, Gemini ou AssemblyAI</span>
     </div>
   </div>
   <button class="help-btn" id="btn-help">Ajuda</button>
@@ -503,6 +504,7 @@
     <ul>
       <li><strong style="color:var(--fg-mid)">Whisper (local)</strong> — Transcrição offline na sua máquina. Nenhum dado sai para a internet. Ideal para arquivos curtos ou quando há restrição de privacidade.</li>
       <li><strong style="color:var(--fg-mid)">Gemini</strong> — Transcrição via API do Google. Requer chave <code>GEMINI_API_KEY</code> configurada no <code>.env</code>. Resultados geralmente mais precisos para português e sotaques.</li>
+      <li><strong style="color:var(--fg-mid)">AssemblyAI</strong> — Transcrição pré-gravada em português com Universal-3 Pro ou Universal-3.5 Pro. Requer <code>ASSEMBLYAI_API_KEY</code> no <code>.env</code>. A diarização identifica falantes por letras dentro de cada arquivo; as letras não indicam nomes reais nem são consistentes entre arquivos. Pode cometer erros.</li>
     </ul>
 
     <h3>Modelos Gemini</h3>
@@ -558,7 +560,7 @@
 
   let pendingFiles = [];
   let modelsStatus = [];
-  let appConfig = { has_hf_token: false, has_gemini_key: false, gemini_models: [], gemini_default_model: 'gemini-3.5-flash' };
+  let appConfig = { has_hf_token: false, has_gemini_key: false, has_assemblyai_key: false, gemini_models: [], gemini_default_model: 'gemini-3.5-flash', assemblyai_models: [], assemblyai_default_model: 'universal-3-5-pro' };
 
   Promise.all([
     fetch('/config').then(r => r.json()).catch(() => ({})),
@@ -581,7 +583,7 @@
 
   function addFiles(fileListObj) {
     for (const file of fileListObj) {
-      pendingFiles.push({ file, backend: 'whisper', model: 'base', diarization: true, word_timestamps: true, gemini_model: appConfig.gemini_default_model });
+      pendingFiles.push({ file, backend: 'whisper', model: 'base', diarization: true, word_timestamps: true, gemini_model: appConfig.gemini_default_model, assemblyai_model: appConfig.assemblyai_default_model });
     }
     renderPending();
   }
@@ -599,8 +601,10 @@
 
       const backendSelect = document.createElement('select');
       const geminiDisabled = !appConfig.has_gemini_key ? ' disabled title="GEMINI_API_KEY não configurado"' : '';
-      backendSelect.innerHTML = `<option value="whisper">Whisper (local)</option><option value="gemini"${geminiDisabled}>Gemini</option>`;
+      const assemblyaiDisabled = !appConfig.has_assemblyai_key ? ' disabled title="ASSEMBLYAI_API_KEY não configurada"' : '';
+      backendSelect.innerHTML = `<option value="whisper">Whisper (local)</option><option value="gemini"${geminiDisabled}>Gemini</option><option value="assemblyai"${assemblyaiDisabled}>AssemblyAI</option>`;
       if (!appConfig.has_gemini_key && item.backend === 'gemini') item.backend = 'whisper';
+      if (!appConfig.has_assemblyai_key && item.backend === 'assemblyai') item.backend = 'whisper';
       backendSelect.value = item.backend;
       backendSelect.addEventListener('change', () => { item.backend = backendSelect.value; renderPending(); });
       row.appendChild(backendSelect);
@@ -642,7 +646,7 @@
 
         modelWrap.appendChild(modelSelect);
         row.appendChild(modelWrap);
-      } else {
+      } else if (item.backend === 'gemini') {
         const gmodelSelect = document.createElement('select');
         gmodelSelect.title = 'Modelo Gemini';
         const gmodels = appConfig.gemini_models.length ? appConfig.gemini_models : [{ id: appConfig.gemini_default_model, label: appConfig.gemini_default_model }];
@@ -679,6 +683,31 @@
           tsLabel.appendChild(document.createTextNode('Timestamps'));
           row.appendChild(tsLabel);
         }
+      } else if (item.backend === 'assemblyai') {
+        const modelSelect = document.createElement('select');
+        modelSelect.title = 'Modelo AssemblyAI';
+        const models = appConfig.assemblyai_models.length ? appConfig.assemblyai_models : [
+          { id: 'universal-3-pro', label: 'Universal-3 Pro' },
+          { id: 'universal-3-5-pro', label: 'Universal-3.5 Pro' },
+        ];
+        models.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = m.label;
+          modelSelect.appendChild(opt);
+        });
+        modelSelect.value = item.assemblyai_model || appConfig.assemblyai_default_model;
+        modelSelect.addEventListener('change', () => { item.assemblyai_model = modelSelect.value; });
+        row.appendChild(modelSelect);
+
+        const diaLabel = document.createElement('label');
+        const diaCheck = document.createElement('input');
+        diaCheck.type = 'checkbox';
+        diaCheck.checked = item.diarization;
+        diaCheck.addEventListener('change', () => { item.diarization = diaCheck.checked; });
+        diaLabel.appendChild(diaCheck);
+        diaLabel.appendChild(document.createTextNode('Diarização'));
+        row.appendChild(diaLabel);
       }
 
       const removeBtn = document.createElement('button');
@@ -702,6 +731,7 @@
       formData.append('word_timestamps', item.word_timestamps ? 'true' : 'false');
       formData.append('initial_prompt', '');
       formData.append('gemini_model', item.gemini_model || appConfig.gemini_default_model);
+      formData.append('assemblyai_model', item.assemblyai_model || appConfig.assemblyai_default_model);
     }
 
     btnUpload.disabled = true;
@@ -739,12 +769,14 @@
     if (!result || result.length === 0) {
       return '<div class="empty-hint">Nenhum segmento transcrito.</div>';
     }
-    const groups = {};
+    const groups = [];
     for (const seg of result) {
-      (groups[seg.speaker] = groups[seg.speaker] || []).push(seg);
+      const last = groups[groups.length - 1];
+      if (last && last.speaker === seg.speaker) last.segs.push(seg);
+      else groups.push({ speaker: seg.speaker, segs: [seg] });
     }
     let html = '';
-    for (const [speaker, segs] of Object.entries(groups)) {
+    for (const { speaker, segs } of groups) {
       html += `<div class="speaker-group"><div class="speaker-name">${escHtml(speaker)}</div>`;
       for (const seg of segs) {
         html += `<div class="seg-line"><span class="ts">${formatTs(seg.start)}</span><span>${escHtml(seg.text)}</span></div>`;
@@ -754,8 +786,8 @@
     return html;
   }
 
-  function downloadExport(jobId, filename, format) {
-    window.location.href = `/jobs/${jobId}/export?format=${format}`;
+  function downloadExport(jobId, format) {
+    window.open(`/jobs/${jobId}/export?format=${format}`, '_blank', 'noopener');
   }
 
   function fmtDate(iso) {
@@ -795,7 +827,8 @@
 
       const backendTag = document.createElement('span');
       const isGemini = job.backend === 'gemini';
-      backendTag.className = 'backend-tag' + (isGemini ? ' gemini' : '');
+      const isAssemblyAI = job.backend === 'assemblyai';
+      backendTag.className = 'backend-tag' + (isGemini ? ' gemini' : isAssemblyAI ? ' assemblyai' : '');
       backendTag.textContent = job.backend;
       header.appendChild(backendTag);
 
@@ -821,7 +854,19 @@
         body.appendChild(err);
       }
 
-      if (isGemini) {
+      if (isAssemblyAI) {
+        const info = document.createElement('div');
+        info.className = 'job-info';
+        const model = (appConfig.assemblyai_models || []).find(m => m.id === job.options.assemblyai_model);
+        const rows = [
+          ['Modelo', model ? model.label : job.options.assemblyai_model],
+          ['Diarização', job.options.diarization ? 'Ativada' : 'Desativada'],
+          ['Enviado em', fmtDate(job.created_at)],
+        ];
+        if (job.status === 'processing') rows.push(['Etapa', job.progress_stage || 'Transcrição em andamento']);
+        info.innerHTML = rows.map(([k, v]) => `<span class="info-key">${k}:</span><span class="info-val">${escHtml(v)}</span>`).join('');
+        body.appendChild(info);
+      } else if (isGemini) {
         const info = document.createElement('div');
         info.className = 'job-info';
         const modelId = job.options && job.options.gemini_model;
@@ -868,7 +913,7 @@
           <button class="small" data-fmt="md">Exportar .md</button>
           <button class="small" data-fmt="md-clean">.md sem timestamp</button>`;
         exportRow.querySelectorAll('button').forEach((btn) => {
-          btn.addEventListener('click', () => downloadExport(job.id, job.filename, btn.dataset.fmt));
+          btn.addEventListener('click', () => downloadExport(job.id, btn.dataset.fmt));
         });
         body.appendChild(exportRow);
 

@@ -2,7 +2,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-Backend = str  # "whisper" | "gemini"
+Backend = str  # "whisper" | "gemini" | "assemblyai"
 JobStatus = str  # "pending" | "processing" | "completed" | "failed"
 
 

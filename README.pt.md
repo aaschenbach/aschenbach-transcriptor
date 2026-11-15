@@ -1,6 +1,6 @@
 # Aschenbach Transcriptor
 
-Ferramenta de transcrição de arquivos de áudio e vídeo com dois backends: **Whisper** (local, offline) e **Google Gemini** (nuvem, batch ou síncrono). Funciona como um servidor web local com interface single-page.
+Ferramenta de transcrição de arquivos de áudio e vídeo com **Whisper** (local), **Google Gemini** e **AssemblyAI**. Funciona como um servidor web local com interface single-page.
 
 > **[Read in English](README.md)**
 
@@ -13,6 +13,7 @@ Ferramenta de transcrição de arquivos de áudio e vídeo com dois backends: **
 - **Gemini:** transcrição via API do Google Generative AI
   - Modo síncrono (`gemini-3.5-transcribe`): diarização nativa de falantes e timestamps por palavra
   - Modo batch assíncrono (`gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-3.8-flash`): envie e volte depois; chunks de até 58 minutos
+- **AssemblyAI:** API pré-gravada com escolha entre Universal-3 Pro e Universal-3.5 Pro, português (`pt`) e diarização opcional; até quatro transcrições simultâneas
 - Exportação de transcrições como `.txt` ou `.md`, com ou sem timestamps
 - Histórico de jobs persistido entre reinicializações (retenção configurável)
 - Modelos Gemini configuráveis via `gemini_models.toml` sem alterar código
@@ -46,6 +47,9 @@ Copie `.env.example` para `.env` e preencha os valores necessários:
 # Necessário para transcrição com Gemini
 GEMINI_API_KEY=
 
+# Necessário para transcrição com AssemblyAI
+ASSEMBLYAI_API_KEY=
+
 # Opcional: token do Hugging Face para modelos Whisper restritos
 HUGGING_FACE_HUB_TOKEN=
 
@@ -57,6 +61,8 @@ HISTORY_RETENTION_DAYS=30
 ```
 
 `GEMINI_API_KEY` só é necessário se você usar o Gemini. O Whisper funciona sem ele.
+
+Para usar AssemblyAI na interface ou no script de lote, configure `ASSEMBLYAI_API_KEY` no `.env` (ou no ambiente). A interface permite escolher Universal-3 Pro ou Universal-3.5 Pro; o script usa Universal-3.5 Pro.
 
 ### Modelos Gemini
 
@@ -81,14 +87,24 @@ uv run aa-transcript
 
 Depois abra [http://127.0.0.1:8181](http://127.0.0.1:8181) no navegador.
 
+### Lote AssemblyAI
+
+Coloque arquivos `.mp3`, `.wav`, `.m4a`, `.flac`, `.ogg` ou `.webm` em `audios/` e execute:
+
+```powershell
+uv run python transcrever_lote.py
+```
+
+O script processa até quatro arquivos ao mesmo tempo e grava um `.txt` por arquivo em `transcricoes/`, com timestamps e cada fala marcada como `Falante A`, `Falante B` etc. Uma falha é informada no terminal sem interromper os demais arquivos. As letras distinguem vozes apenas dentro de cada arquivo; não são nomes reais nem permanecem consistentes entre arquivos. A identificação pode errar, especialmente em falas curtas ou sobrepostas. Para melhorar nomes próprios ou termos técnicos, adicione `keyterms_prompt=[...]` em `TranscriptionConfig` no script.
+
 ---
 
 ## Uso
 
 1. Arraste arquivos de áudio ou vídeo para a área de upload, ou clique para selecionar.
-2. Para cada arquivo, escolha um **backend** (Whisper ou Gemini) e um **modelo**.
+2. Para cada arquivo, escolha um **backend** (Whisper, Gemini ou AssemblyAI) e um **modelo**. No AssemblyAI, a diarização vem ativada por padrão.
 3. Clique em **Enviar para transcrição**.
-4. Jobs do Whisper completam em segundos a minutos dependendo do tamanho do arquivo e do modelo. Jobs batch do Gemini rodam de forma assíncrona — clique em **Verificar agora** para consultar o resultado.
+4. Jobs do Whisper completam em segundos a minutos dependendo do tamanho do arquivo e do modelo. Jobs batch do Gemini rodam de forma assíncrona — clique em **Verificar agora** para consultar o resultado. Jobs AssemblyAI são processados em segundo plano enquanto o servidor estiver aberto.
 5. Quando concluído, expanda o card do job para ler a transcrição e exportá-la.
 
 ### Modelos Whisper
@@ -124,6 +140,7 @@ Resultados batch expiram 48 horas após a conclusão do job no Google.
 src/aa_transcript/
 ├── main.py           # FastAPI app, endpoints (porta 8181)
 ├── gemini_backend.py # Lógica Gemini sync + batch
+├── assemblyai_backend.py # Lógica AssemblyAI pré-gravada
 ├── transcriber.py    # Wrapper faster-whisper, listagem de modelos
 ├── whisper_backend.py # Execução do Whisper
 ├── jobs.py           # Dataclasses Job e Segment
